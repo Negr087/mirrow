@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getBotConfig, setBotConfig, startBot, stopBot } from '@/bot/scheduler';
+import { getBotConfig, setBotConfig, startBot, stopBot, botEventDispatcher, getBotStatus, BotStatus, BotLogMessage } from '@/bot/scheduler';
 
 export function InstagramNostrBotConfig() {
   const [instagramAccounts, setInstagramAccounts] = useState('');
@@ -13,6 +13,8 @@ export function InstagramNostrBotConfig() {
   const [nostrPrivateKey, setNostrPrivateKey] = useState('');
   const [relays, setRelays] = useState('');
   const [isBotRunning, setIsBotRunning] = useState(false);
+  const [botStatus, setBotStatus] = useState<BotStatus>(getBotStatus());
+  const [botLogs, setBotLogs] = useState<BotLogMessage[]>([]);
 
   useEffect(() => {
     const config = getBotConfig();
@@ -21,10 +23,24 @@ export function InstagramNostrBotConfig() {
     setNostrPrivateKey(config.nostrPrivateKey);
     setRelays(config.relays.join('\n'));
 
-    // Check if bot is running based on intervalId (simple check for now)
-    // A more robust solution would involve a shared state or service worker
-    const running = localStorage.getItem('botRunning') === 'true'; // Using localStorage for a simple state check
-    setIsBotRunning(running);
+    const handleBotEvent = (type: 'status' | 'log', payload: BotStatus | BotLogMessage) => {
+      if (type === 'status') {
+        setBotStatus(payload as BotStatus);
+        setIsBotRunning((payload as BotStatus).isRunning);
+      } else if (type === 'log') {
+        setBotLogs(prevLogs => [...prevLogs, payload as BotLogMessage]);
+      }
+    };
+
+    botEventDispatcher.addListener(handleBotEvent);
+
+    // Initial status update
+    setBotStatus(getBotStatus());
+    setIsBotRunning(getBotStatus().isRunning);
+
+    return () => {
+      botEventDispatcher.removeListener(handleBotEvent);
+    };
   }, []);
 
   const handleSaveConfig = () => {
@@ -35,21 +51,25 @@ export function InstagramNostrBotConfig() {
       relays: relays.split('\n').map(s => s.trim()).filter(s => s.length > 0),
     };
     setBotConfig(config);
-    localStorage.setItem('botRunning', isBotRunning.toString()); // Update running state in localStorage
     alert('Configuration saved!');
   };
 
   const handleStartBot = () => {
     handleSaveConfig(); // Save config before starting
     startBot();
-    setIsBotRunning(true);
-    localStorage.setItem('botRunning', 'true');
   };
 
   const handleStopBot = () => {
     stopBot();
-    setIsBotRunning(false);
-    localStorage.setItem('botRunning', 'false');
+  };
+
+  const getLogLevelColor = (level: BotLogMessage['level']) => {
+    switch (level) {
+      case 'info': return 'text-blue-500';
+      case 'warn': return 'text-yellow-500';
+      case 'error': return 'text-red-500';
+      default: return 'text-gray-700';
+    }
   };
 
   return (
@@ -104,6 +124,40 @@ export function InstagramNostrBotConfig() {
         </div>
         <div className="flex justify-end space-x-2">
           <Button onClick={handleSaveConfig}>Save Configuration</Button>
+          {isBotRunning ? (
+            <Button variant="destructive" onClick={handleStopBot}>Stop Bot</Button>
+          ) : (
+            <Button onClick={handleStartBot}>Start Bot</Button>
+          )}
+        </div>
+
+        <div className="mt-8 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold mb-2">Bot Status</h3>
+          <p><strong>Running:</strong> {botStatus.isRunning ? 'Yes' : 'No'}</p>
+          <p><strong>Last Check:</strong> {botStatus.lastCheckTime || 'N/A'}</p>
+          <p><strong>New Posts Published (last run):</strong> {botStatus.lastPostCount}</p>
+          {botStatus.error && <p className="text-red-500"><strong>Error:</strong> {botStatus.error}</p>}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold mb-2">Bot Logs</h3>
+          <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-md h-60 overflow-y-auto font-mono text-sm">
+            {botLogs.length === 0 ? (
+              <p className="text-gray-500">No logs yet.</p>
+            ) : (
+              botLogs.map((log, index) => (
+                <p key={index} className={`${getLogLevelColor(log.level)}`}>
+                  [{log.timestamp}] [{log.level.toUpperCase()}] {log.message}
+                </p>
+              ))
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
           {isBotRunning ? (
             <Button variant="destructive" onClick={handleStopBot}>Stop Bot</Button>
           ) : (
