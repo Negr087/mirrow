@@ -14,8 +14,11 @@ const Index = () => {
         <h1 className="text-4xl font-bold mb-4 text-gray-900 dark:text-gray-100">
           Welcome to Your Blank App
         </h1>
-        <p className="text-xl text-gray-600 dark:text-gray-400">
+        <p className="text-xl text-gray-600 dark:text-gray-400 mb-8">
           Start building your amazing project here!
+        </p>
+        <p className="text-lg text-gray-700 dark:text-gray-300">
+          Check out the new <a href="/bot-config" className="text-blue-500 hover:underline">Instagram to Nostr Bot Configuration</a> page to set up your automated posting.
         </p>
       </div>
     </div>
