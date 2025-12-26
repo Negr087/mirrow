@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getBotConfig, setBotConfig, startBot, stopBot, botEventDispatcher, getBotStatus, BotStatus, BotLogMessage } from '@/bot/scheduler';
+import { getBotConfig, setBotConfig, startBot, stopBot, botEventDispatcher, getBotStatus, initAutoStart, BotStatus, BotLogMessage } from '@/bot/scheduler';
 
 export function InstagramNostrBotConfig() {
   const [instagramAccounts, setInstagramAccounts] = useState('');
@@ -13,35 +12,53 @@ export function InstagramNostrBotConfig() {
   const [nostrPrivateKey, setNostrPrivateKey] = useState('');
   const [relays, setRelays] = useState('');
   const [isBotRunning, setIsBotRunning] = useState(false);
-  const [botStatus, setBotStatus] = useState<BotStatus>(getBotStatus());
+  const [botStatus, setBotStatus] = useState<BotStatus>({
+  isRunning: false,
+  lastCheckTime: null,
+  lastPostCount: 0,
+  error: null
+});
   const [botLogs, setBotLogs] = useState<BotLogMessage[]>([]);
 
   useEffect(() => {
-    const config = getBotConfig();
-    setInstagramAccounts(config.instagramAccounts.join('\n'));
-    setCheckIntervalMinutes(config.checkIntervalMinutes);
-    setNostrPrivateKey(config.nostrPrivateKey);
-    setRelays(config.relays.join('\n'));
+  const config = getBotConfig();
+  setInstagramAccounts(config.instagramAccounts.join('\n'));
+  setCheckIntervalMinutes(config.checkIntervalMinutes);
+  setNostrPrivateKey(config.nostrPrivateKey);
+  setRelays(config.relays.join('\n'));
 
-    const handleBotEvent = (type: 'status' | 'log', payload: BotStatus | BotLogMessage) => {
-      if (type === 'status') {
-        setBotStatus(payload as BotStatus);
-        setIsBotRunning((payload as BotStatus).isRunning);
-      } else if (type === 'log') {
-        setBotLogs(prevLogs => [...prevLogs, payload as BotLogMessage]);
+  const seenLogs = new Set<string>();
+
+  const handleBotEvent = (type: 'status' | 'log', payload: BotStatus | BotLogMessage) => {
+    if (type === 'status') {
+      setBotStatus(payload as BotStatus);
+      setIsBotRunning((payload as BotStatus).isRunning);
+    } else if (type === 'log') {
+      const log = payload as BotLogMessage;
+      const logKey = `${log.timestamp}-${log.message}`;
+      
+      // Only add if we haven't seen this log before
+      if (!seenLogs.has(logKey)) {
+        seenLogs.add(logKey);
+        setBotLogs(prevLogs => [...prevLogs, log]);
       }
-    };
+    }
+  };
 
-    botEventDispatcher.addListener(handleBotEvent);
+  botEventDispatcher.addListener(handleBotEvent);
 
-    // Initial status update
-    setBotStatus(getBotStatus());
-    setIsBotRunning(getBotStatus().isRunning);
+  // Initial status update and auto-start
+  getBotStatus().then(status => {
+    setBotStatus(status);
+    setIsBotRunning(status.isRunning);
+  });
+  
+  initAutoStart();
 
-    return () => {
-      botEventDispatcher.removeListener(handleBotEvent);
-    };
-  }, []);
+  return () => {
+    botEventDispatcher.removeListener(handleBotEvent);
+  };
+}, []);
 
   const handleSaveConfig = () => {
     const config = {
@@ -152,17 +169,6 @@ export function InstagramNostrBotConfig() {
               ))
             )}
           </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-          {isBotRunning ? (
-            <Button variant="destructive" onClick={handleStopBot}>Stop Bot</Button>
-          ) : (
-            <Button onClick={handleStartBot}>Start Bot</Button>
-          )}
         </div>
       </CardContent>
     </Card>
